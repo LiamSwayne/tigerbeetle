@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const log = std.log.default;
+
+const log = @import("log.zig");
 
 const assert = std.debug.assert;
 
@@ -91,7 +92,7 @@ pub fn start(
         .{},
         struct {
             fn poll_broken_pipe(stdin: std.fs.File, process: *Self) void {
-                while (true) {
+                while (process.state() == .initial or process.state() == .running) {
                     std.time.sleep(1 * std.time.ns_per_s);
                     _ = stdin.write(&.{1}) catch |err| {
                         switch (err) {
@@ -116,17 +117,17 @@ pub fn start(
         .{},
         struct {
             fn log_stderr(stderr: std.fs.File, process: *Self) void {
-                while (true) {
-                    var buf: [1024]u8 = undefined;
+                while (process.state() == .initial or process.state() == .running) {
+                    var buf: [1024 * 8]u8 = undefined;
                     const line_opt = stderr.reader().readUntilDelimiterOrEof(
                         &buf,
                         '\n',
                     ) catch |err| {
-                        log.info("{s}: failed reading stderr: {any}", .{ process.name, err });
-                        break;
+                        log.warn(process.name, "failed reading stderr: {any}", .{err});
+                        continue;
                     };
                     if (line_opt) |line| {
-                        log.info("{s}: {s}", .{ process.name, line });
+                        log.info(process.name, "{s}", .{line});
                     } else {
                         break;
                     }
@@ -159,7 +160,7 @@ pub fn terminate(
             const exit_code = 1;
             break :kill std.os.windows.TerminateProcess(child.id, exit_code);
         } else {
-            break :kill std.posix.kill(child.id, std.posix.SIG.TERM);
+            break :kill std.posix.kill(child.id, std.posix.SIG.KILL);
         }
     } catch |err| {
         std.debug.print(
@@ -213,8 +214,7 @@ fn expect_state_in(self: *Self, comptime valid_states: anytype) void {
         if (actual_state == valid) return;
     }
 
-    log.err("{s}: expected state in {any} but actual state is {s}", .{
-        self.name,
+    log.err(self.name, "expected state in {any} but actual state is {s}", .{
         valid_states,
         @tagName(actual_state),
     });

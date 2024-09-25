@@ -4,7 +4,7 @@ const Replica = @import("./replica.zig");
 const LoggedProcess = @import("./logged_process.zig");
 
 const assert = std.debug.assert;
-const log = std.log.default;
+const log = @import("log.zig");
 
 const Self = @This();
 const NetemRules = std.AutoHashMap(netem.Op, netem.Args);
@@ -49,7 +49,7 @@ const Havoc = enum {
     terminate_replica,
     restart_replica,
     network_delay_add,
-    network_deplay_remove,
+    network_delay_remove,
     network_loss_add,
     network_loss_remove,
     sleep,
@@ -57,19 +57,19 @@ const Havoc = enum {
 
 pub fn wreak_havoc(self: *Self) !bool {
     const havoc = weighted(self.random, Havoc, .{
-        .sleep = 30,
+        .sleep = 50,
         .terminate_replica = 1,
         .restart_replica = 10,
-        .network_delay_add = 10,
-        .network_deplay_remove = 1,
-        .network_loss_add = 10,
-        .network_loss_remove = 1,
+        .network_delay_add = 1,
+        .network_delay_remove = 10,
+        .network_loss_add = 1,
+        .network_loss_remove = 10,
     });
     switch (havoc) {
         .terminate_replica => return try self.terminate_replica(),
         .restart_replica => return try self.restart_replica(),
         .network_delay_add => {
-            const delay_ms = self.random.intRangeAtMost(u16, 50, 1000);
+            const delay_ms = self.random.intRangeAtMost(u16, 10, 200);
             return try self.netem_rules_add(.delay, &.{
                 try self.shell.fmt("{d}ms", .{delay_ms}),
                 try self.shell.fmt("{d}ms", .{@divFloor(delay_ms, 10)}),
@@ -77,9 +77,9 @@ pub fn wreak_havoc(self: *Self) !bool {
                 "normal",
             });
         },
-        .network_deplay_remove => return try self.netem_rules_delete(.delay),
+        .network_delay_remove => return try self.netem_rules_delete(.delay),
         .network_loss_add => {
-            const loss_pct = self.random.intRangeAtMost(u16, 20, 100);
+            const loss_pct = self.random.intRangeAtMost(u16, 5, 100);
             return try self.netem_rules_add(.loss, &.{
                 try self.shell.fmt("{d}%", .{loss_pct}),
                 "75%",
@@ -111,18 +111,18 @@ fn random_replica_in_state(self: *Self, state: LoggedProcess.State) !?Replica {
 
 fn terminate_replica(self: *Self) !bool {
     if (try self.random_replica_in_state(.running)) |replica| {
-        log.info("nemesis: stopping {s}", .{replica.name});
+        log.info("nemesis", "stopping {s}", .{replica.name});
         _ = try replica.process.terminate();
-        log.info("nemesis: {s} stopped", .{replica.name});
+        log.info("nemesis", "{s} stopped", .{replica.name});
         return true;
     } else return false;
 }
 
 fn restart_replica(self: *Self) !bool {
     if (try self.random_replica_in_state(.terminated)) |replica| {
-        log.info("nemesis: restarting {s}", .{replica.name});
+        log.info("nemesis", "restarting {s}", .{replica.name});
         try replica.process.start();
-        log.info("nemesis: {s} back up again", .{replica.name});
+        log.info("nemesis", "{s} back up again", .{replica.name});
         return true;
     } else return false;
 }
@@ -178,7 +178,7 @@ fn netem_sync(self: *Self) !bool {
         try all_args.appendSlice(kv.value_ptr.*);
     }
     const args_joined = try join_args(self.shell.arena.allocator(), all_args.items);
-    log.info("nemesis: syncing netem {s}", .{args_joined});
+    log.info("nemesis", "syncing netem {s}", .{args_joined});
 
     self.shell.exec(
         "tc qdisc replace dev lo root netem {args}",
