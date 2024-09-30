@@ -252,11 +252,7 @@ test "LoggedProcess: starts and stops" {
     const allocator = gpa.allocator();
     defer assert(gpa.deinit() == .ok);
 
-    const argv: []const []const u8 = &.{
-        "awk",
-        \\ BEGIN { for (i = 0; i < 10; i++) { print i > "/dev/fd/2"; } }
-        ,
-    };
+    const argv: []const []const u8 = &.{"yes"};
 
     const name = "test program";
     var replica = try Self.create(allocator, name, argv, .{});
