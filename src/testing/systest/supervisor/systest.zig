@@ -126,9 +126,6 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         try process.start();
     }
 
-    // let the replicas start
-    std.time.sleep(5 * std.time.ns_per_s);
-
     // Start workload
     const workload = try start_workload(shell, allocator);
     errdefer workload.deinit();
