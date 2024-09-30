@@ -6,7 +6,7 @@ const Replica = @import("./replica.zig");
 const LoggedProcess = @import("./logged_process.zig");
 
 const assert = std.debug.assert;
-const log = @import("log.zig");
+const log = std.log.scoped(.nemesis);
 
 const Self = @This();
 const NetemRules = std.AutoHashMap(netem.Op, netem.Args);
@@ -113,18 +113,18 @@ fn random_replica_in_state(self: *Self, state: LoggedProcess.State) !?Replica {
 
 fn terminate_replica(self: *Self) !bool {
     if (try self.random_replica_in_state(.running)) |replica| {
-        log.info("nemesis", "stopping {s}", .{replica.name});
+        log.info("stopping {s}", .{replica.name});
         _ = try replica.process.terminate();
-        log.info("nemesis", "{s} stopped", .{replica.name});
+        log.info("{s} stopped", .{replica.name});
         return true;
     } else return false;
 }
 
 fn restart_replica(self: *Self) !bool {
     if (try self.random_replica_in_state(.terminated)) |replica| {
-        log.info("nemesis", "restarting {s}", .{replica.name});
+        log.info("restarting {s}", .{replica.name});
         try replica.process.start();
-        log.info("nemesis", "{s} back up again", .{replica.name});
+        log.info("{s} back up again", .{replica.name});
         return true;
     } else return false;
 }
@@ -180,7 +180,7 @@ fn netem_sync(self: *Self) !bool {
         try all_args.appendSlice(kv.value_ptr.*);
     }
     const args_joined = try join_args(self.shell.arena.allocator(), all_args.items);
-    log.info("nemesis", "syncing netem {s}", .{args_joined});
+    log.info("syncing netem {s}", .{args_joined});
 
     self.shell.exec(
         "tc qdisc replace dev lo root netem {args}",

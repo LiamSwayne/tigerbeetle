@@ -9,7 +9,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const log = @import("log.zig");
+const log = std.log.scoped(.logged_process);
 
 const assert = std.debug.assert;
 
@@ -131,11 +131,11 @@ pub fn start(
                         &buf,
                         '\n',
                     ) catch |err| {
-                        log.warn(process.name, "failed reading stderr: {any}", .{err});
+                        log.warn("{s}: failed reading stderr: {any}", .{ process.name, err });
                         continue;
                     };
                     if (line_opt) |line| {
-                        log.info(process.name, "{s}", .{line});
+                        log.info("{s}: {s}", .{ process.name, line });
                     } else {
                         break;
                     }
@@ -222,7 +222,8 @@ fn expect_state_in(self: *Self, comptime valid_states: anytype) void {
         if (actual_state == valid) return;
     }
 
-    log.err(self.name, "expected state in {any} but actual state is {s}", .{
+    log.err("{s}: expected state in {any} but actual state is {s}", .{
+        self.name,
         valid_states,
         @tagName(actual_state),
     });
