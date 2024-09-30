@@ -1,3 +1,11 @@
+//! Runs a subprocess and logs its stderr output. The processes can terminate by its own or be
+//! actively terminated with a SIGKILL, and later be restarted again.
+//!
+//! We use this to run a cluster of replicas (and the workload), and terminate and restart replicas
+//! to test fault tolerance.
+//!
+//! NOTE: some duplication exists between this and `tmp_tigerbeetle.zig` that could perhaps be
+//! unified.
 const std = @import("std");
 const builtin = @import("builtin");
 

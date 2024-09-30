@@ -1,3 +1,5 @@
+//! The nemesis injects faults into a running cluster, to test for fault tolerance. It's inspired
+//! by Jepsen, but is not so advanced.
 const std = @import("std");
 const Shell = @import("../../../shell.zig");
 const Replica = @import("./replica.zig");

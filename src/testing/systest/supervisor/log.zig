@@ -1,3 +1,18 @@
+//! Similar to how `std.log`, works but takes a "scope" string as its first argument, which is
+//! printed before the log level. This is mainly used to disambiguate log lines from concurrent
+//! processes in systest.
+//!
+//! Example:
+//!
+//! ```zig
+//! log.info("my_scope", "hello: {s}", .{ "world" });
+//! ```
+//!
+//! Which would print:
+//!
+//! ```
+//! my_scope: info: hello world
+//! ```
 const std = @import("std");
 
 fn log_with_level(

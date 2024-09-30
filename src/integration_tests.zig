@@ -499,7 +499,8 @@ test "systest smoke" {
     const shell = try Shell.create(std.testing.allocator);
     defer shell.destroy();
 
-    // Build Java client library
+    // Build Java client library. Versions need to match the passed-in multiversion tigerbeetle
+    // executable.
     {
         try shell.exec_zig(
             \\ build clients:java 
@@ -514,12 +515,7 @@ test "systest smoke" {
         try shell.pushd("./src/clients/java");
         defer shell.popd();
 
-        try shell.exec(
-            "mvn clean install --batch-mode --quiet -Dmaven.test.skip",
-            .{
-                // .release = vsr_release.?,
-            },
-        );
+        try shell.exec("mvn clean install --batch-mode --quiet -Dmaven.test.skip", .{});
     }
 
     // Build workload

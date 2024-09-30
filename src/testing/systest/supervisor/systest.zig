@@ -12,9 +12,20 @@
 //! If the workload exits successfully, or is actively terminated, the whole systest exits
 //! successfully.
 //!
-//! To launch a test, run this command from the repository root:
+//! To launch a 1-minute smoke test, run this command from the repository root:
+//!
+//!     $ zig build test:integration -- "systest smoke"
+//!
+//! If you need more control, you can run this script directly:
 //!
 //!     $ unshare -nfr zig build scripts -- systest --tigerbeetle-executable=./tigerbeetle
+//!
+//! NOTE: This requires that the Java client and Java workload are built first.
+//!
+//! Run a longer test:
+//!
+//!     $ unshare -nfr zig build scripts -- systest --tigerbeetle-executable=./tigerbeetle \
+//!         --test-duration-minutes=10
 //!
 //! To capture its logs, for instance to run grep afterwards, redirect stderr to a file.
 //!
@@ -26,7 +37,6 @@
 //!
 //! TODO:
 //!
-//! * build tigerbeetle at start of script
 //! * full partitioning
 //! * better workload(s)
 //! * filesystem fault injection?
