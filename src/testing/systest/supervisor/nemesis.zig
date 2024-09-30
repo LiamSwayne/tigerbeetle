@@ -182,7 +182,10 @@ fn netem_sync(self: *Self) !bool {
         try all_args.append(@tagName(kv.key_ptr.*));
         try all_args.appendSlice(kv.value_ptr.*);
     }
-    const args_joined = try join_args(self.shell.arena.allocator(), all_args.items);
+
+    const args_joined = try join_args(self.allocator, all_args.items);
+    defer self.allocator.free(args_joined);
+
     log.info("syncing netem {s}", .{args_joined});
 
     self.shell.exec(
