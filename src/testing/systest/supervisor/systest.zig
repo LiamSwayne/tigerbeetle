@@ -46,7 +46,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Shell = @import("../../../shell.zig");
 const LoggedProcess = @import("./logged_process.zig");
-const Replica = @import("./replica.zig");
 const Nemesis = @import("./nemesis.zig");
 const log = std.log.scoped(.systest);
 
@@ -88,7 +87,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     const test_duration_ns = @as(u64, @intCast(args.test_duration_minutes)) * std.time.ns_per_min;
     const time_start = std.time.nanoTimestamp();
 
-    var replicas: [replica_count]Replica = undefined;
+    var replicas: [replica_count]*LoggedProcess = undefined;
     for (0..replica_count) |i| {
         const name = try shell.fmt("replica{d}", .{i});
         const datafile = try shell.fmt("{s}/1_{d}.tigerbeetle", .{ tmp_dir, i });
@@ -121,7 +120,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         var process = try LoggedProcess.create(allocator, name, argv, .{});
         errdefer process.destroy();
 
-        replicas[i] = .{ .name = name, .port = replica_ports[i], .process = process };
+        replicas[i] = process;
         try process.start();
     }
 
@@ -158,10 +157,10 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     for (replicas) |replica| {
         // The nemesis might have terminated the replica and never restarted it,
         // so we need to check its state.
-        if (replica.process.state() == .running) {
-            _ = try replica.process.terminate();
+        if (replica.state() == .running) {
+            _ = try replica.terminate();
         }
-        replica.process.destroy();
+        replica.destroy();
     }
 
     switch (workload_result) {

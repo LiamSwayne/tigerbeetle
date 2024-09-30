@@ -2,7 +2,6 @@
 //! by Jepsen, but is not so advanced.
 const std = @import("std");
 const Shell = @import("../../../shell.zig");
-const Replica = @import("./replica.zig");
 const LoggedProcess = @import("./logged_process.zig");
 
 const assert = std.debug.assert;
@@ -10,19 +9,22 @@ const log = std.log.scoped(.nemesis);
 
 const Self = @This();
 const NetemRules = std.AutoHashMap(netem.Op, netem.Args);
+const replicas_count_max = 16;
 
 shell: *Shell,
 allocator: std.mem.Allocator,
 random: std.rand.Random,
-replicas: []const Replica,
+replicas: []*LoggedProcess,
 netem_rules: NetemRules,
 
 pub fn init(
     shell: *Shell,
     allocator: std.mem.Allocator,
     random: std.rand.Random,
-    replicas: []const Replica,
+    replicas: []*LoggedProcess,
 ) !*Self {
+    assert(replicas.len <= replicas_count_max);
+
     const nemesis = try allocator.create(Self);
     const netem_rules = NetemRules.init(allocator);
     nemesis.* = .{
@@ -95,35 +97,36 @@ pub fn wreak_havoc(self: *Self) !bool {
     }
 }
 
-fn random_replica_in_state(self: *Self, state: LoggedProcess.State) !?Replica {
-    var matching = std.ArrayList(Replica).init(self.allocator);
-    defer matching.deinit();
+fn random_replica_in_state(self: *Self, state: LoggedProcess.State) ?*LoggedProcess {
+    var matching: [replicas_count_max]*LoggedProcess = undefined;
+    var pos: u8 = 0;
 
     for (self.replicas) |replica| {
-        if (replica.process.state() == state) {
-            try matching.append(replica);
+        if (replica.state() == state) {
+            matching[pos] = replica;
+            pos += 1;
         }
     }
-    if (matching.items.len == 0) {
+    if (pos == 0) {
         return null;
     }
-    std.rand.shuffle(self.random, Replica, matching.items);
-    return matching.items[0];
+    std.rand.shuffle(self.random, *LoggedProcess, matching[0..pos]);
+    return matching[0];
 }
 
 fn terminate_replica(self: *Self) !bool {
-    if (try self.random_replica_in_state(.running)) |replica| {
+    if (self.random_replica_in_state(.running)) |replica| {
         log.info("stopping {s}", .{replica.name});
-        _ = try replica.process.terminate();
+        _ = try replica.terminate();
         log.info("{s} stopped", .{replica.name});
         return true;
     } else return false;
 }
 
 fn restart_replica(self: *Self) !bool {
-    if (try self.random_replica_in_state(.terminated)) |replica| {
+    if (self.random_replica_in_state(.terminated)) |replica| {
         log.info("restarting {s}", .{replica.name});
-        try replica.process.start();
+        try replica.start();
         log.info("{s} back up again", .{replica.name});
         return true;
     } else return false;
