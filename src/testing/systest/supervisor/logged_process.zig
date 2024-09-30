@@ -34,11 +34,7 @@ stdin_thread: ?std.Thread = null,
 stderr_thread: ?std.Thread = null,
 current_state: AtomicState,
 
-pub fn state(self: *Self) State {
-    return self.current_state.load(.seq_cst);
-}
-
-pub fn init(
+pub fn create(
     allocator: std.mem.Allocator,
     name: []const u8,
     argv: []const []const u8,
@@ -61,10 +57,14 @@ pub fn init(
     return process;
 }
 
-pub fn deinit(self: *Self) void {
+pub fn destroy(self: *Self) void {
     const allocator = self.allocator;
     self.arena.deinit();
     allocator.destroy(self);
+}
+
+pub fn state(self: *Self) State {
+    return self.current_state.load(.seq_cst);
 }
 
 pub fn start(
@@ -257,8 +257,8 @@ test "LoggedProcess: starts and stops" {
     };
 
     const name = "test program";
-    var replica = try Self.init(allocator, name, argv, .{});
-    defer replica.deinit();
+    var replica = try Self.create(allocator, name, argv, .{});
+    defer replica.destroy();
 
     // start & stop
     try replica.start();

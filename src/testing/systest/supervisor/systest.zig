@@ -118,8 +118,8 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             datafile,
         });
 
-        var process = try LoggedProcess.init(allocator, name, argv, .{});
-        errdefer process.deinit();
+        var process = try LoggedProcess.create(allocator, name, argv, .{});
+        errdefer process.destroy();
 
         replicas[i] = .{ .name = name, .port = replica_ports[i], .process = process };
         try process.start();
@@ -127,7 +127,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
 
     // Start workload
     const workload = try start_workload(shell, allocator);
-    errdefer workload.deinit();
+    errdefer workload.destroy();
 
     // Set up nemesis (fault injector)
     var prng = std.rand.DefaultPrng.init(0);
@@ -153,7 +153,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         break :term try workload.terminate();
     };
 
-    workload.deinit();
+    workload.destroy();
 
     for (replicas) |replica| {
         // The nemesis might have terminated the replica and never restarted it,
@@ -161,7 +161,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         if (replica.process.state() == .running) {
             _ = try replica.process.terminate();
         }
-        replica.process.deinit();
+        replica.process.destroy();
     }
 
     switch (workload_result) {
@@ -214,7 +214,7 @@ fn start_workload(shell: *Shell, allocator: std.mem.Allocator) !*LoggedProcess {
     var env = try std.process.getEnvMap(shell.arena.allocator());
     try env.put("REPLICAS", try comma_separate_ports(shell.arena.allocator(), &replica_ports));
 
-    var process = try LoggedProcess.init(allocator, name, argv, .{ .env = &env });
+    var process = try LoggedProcess.create(allocator, name, argv, .{ .env = &env });
     try process.start();
     return process;
 }
