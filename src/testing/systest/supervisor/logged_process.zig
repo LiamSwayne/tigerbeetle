@@ -73,6 +73,8 @@ pub fn start(
     self.expect_state_in(.{ .initial, .terminated, .completed });
     defer self.expect_state_in(.{.running});
 
+    assert(self.child == null);
+
     var child = std.process.Child.init(self.argv, self.allocator);
 
     child.cwd = self.cwd;
