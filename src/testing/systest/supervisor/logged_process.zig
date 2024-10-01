@@ -40,8 +40,11 @@ pub fn create(
     options: Options,
 ) !*Self {
     const cwd = try std.process.getCwdAlloc(allocator);
+    errdefer allocator.free(cwd);
 
     const process = try allocator.create(Self);
+    errdefer allocator.destroy(process);
+
     process.* = .{
         .allocator = allocator,
         .name = name,
