@@ -241,12 +241,64 @@ fn format_argv(allocator: std.mem.Allocator, argv: []const []const u8) ![]const 
     return try out.toOwnedSlice();
 }
 
+// The test for LoggedProcess needs an executable that runs forever which is solved (without
+// depending on system executables) by using the Zig compiler to build this very file as an
+// executable in a temporary directory.
+pub usingnamespace if (@import("root") != @This()) struct {
+    // For production builds, don't include the main function.
+    // This is `if __name__ == "__main__":` at comptime!
+} else struct {
+    pub fn main() !void {
+        while (true) {
+            _ = try std.io.getStdErr().write("yep\n");
+        }
+    }
+};
+
 test "LoggedProcess: starts and stops" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer assert(gpa.deinit() == .ok);
 
-    const argv: []const []const u8 = &.{"yes"};
+    const zig_exe = try std.process.getEnvVarOwned(allocator, "ZIG_EXE"); // Set by build.zig
+    defer allocator.free(zig_exe);
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const tmp_dir_path = try std.fs.path.join(allocator, &.{
+        ".zig-cache",
+        "tmp",
+        &tmp_dir.sub_path,
+    });
+    defer allocator.free(tmp_dir_path);
+
+    const test_exe_buf = try allocator.create([std.fs.max_path_bytes]u8);
+    defer allocator.destroy(test_exe_buf);
+
+    { // Compile this file as an executable!
+        const this_file = try std.fs.cwd().realpath(@src().file, test_exe_buf);
+        const argv = [_][]const u8{ zig_exe, "build-exe", this_file };
+        const exec_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &argv,
+            .cwd = tmp_dir_path,
+        });
+        defer allocator.free(exec_result.stdout);
+        defer allocator.free(exec_result.stderr);
+
+        if (exec_result.term.Exited != 0) {
+            std.debug.print("{s}{s}", .{ exec_result.stdout, exec_result.stderr });
+            return error.FailedToCompile;
+        }
+    }
+
+    const test_exe = try tmp_dir.dir.realpath(
+        "logged_process" ++ comptime builtin.target.exeFileExt(),
+        test_exe_buf,
+    );
+
+    const argv: []const []const u8 = &.{test_exe};
 
     const name = "test program";
     var replica = try Self.create(allocator, name, argv, .{});
