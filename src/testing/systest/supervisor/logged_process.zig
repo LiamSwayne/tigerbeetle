@@ -25,7 +25,6 @@ argv: []const []const u8,
 options: Options,
 
 // Allocated by init
-arena: std.heap.ArenaAllocator,
 cwd: []const u8,
 
 // Lifecycle state
@@ -40,14 +39,11 @@ pub fn create(
     argv: []const []const u8,
     options: Options,
 ) !*Self {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-
-    const cwd = try std.process.getCwdAlloc(arena.allocator());
+    const cwd = try std.process.getCwdAlloc(allocator);
 
     const process = try allocator.create(Self);
     process.* = .{
         .allocator = allocator,
-        .arena = arena,
         .name = name,
         .cwd = cwd,
         .argv = argv,
@@ -59,7 +55,7 @@ pub fn create(
 
 pub fn destroy(self: *Self) void {
     const allocator = self.allocator;
-    self.arena.deinit();
+    allocator.free(self.cwd);
     allocator.destroy(self);
 }
 
@@ -84,11 +80,6 @@ pub fn start(
     child.stderr_behavior = .Pipe;
 
     try child.spawn();
-
-    std.debug.print(
-        "{s}: {s}\n",
-        .{ self.name, try format_argv(self.arena.allocator(), self.argv) },
-    );
 
     // Zig doesn't have non-blocking version of child.wait, so we use `BrokenPipe`
     // on writing to child's stdin to detect if a child is dead in a non-blocking
