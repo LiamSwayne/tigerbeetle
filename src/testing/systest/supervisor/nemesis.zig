@@ -8,14 +8,13 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.nemesis);
 
 const Self = @This();
-const NetemRules = std.AutoHashMap(netem.Op, netem.Args);
 const replicas_count_max = 16;
 
 shell: *Shell,
 allocator: std.mem.Allocator,
 random: std.rand.Random,
 replicas: []*LoggedProcess,
-netem_rules: NetemRules,
+netem_rules: netem.Rules,
 
 pub fn init(
     shell: *Shell,
@@ -26,25 +25,20 @@ pub fn init(
     assert(replicas.len <= replicas_count_max);
 
     const nemesis = try allocator.create(Self);
-    const netem_rules = NetemRules.init(allocator);
+
     nemesis.* = .{
         .shell = shell,
         .allocator = allocator,
         .random = random,
         .replicas = replicas,
-        .netem_rules = netem_rules,
+        .netem_rules = netem.Rules{ .delay = null, .loss = null },
     };
 
     return nemesis;
 }
 
 pub fn deinit(self: *Self) void {
-    var it = self.netem_rules.valueIterator();
-    while (it.next()) |args| {
-        self.allocator.free(args.*);
-    }
     self.network_netem_delete_all() catch {};
-    self.netem_rules.deinit();
     const allocator = self.allocator;
     allocator.destroy(self);
 }
@@ -73,23 +67,46 @@ pub fn wreak_havoc(self: *Self) !bool {
         .terminate_replica => return try self.terminate_replica(),
         .restart_replica => return try self.restart_replica(),
         .network_delay_add => {
+            if (self.netem_rules.delay != null) {
+                return false;
+            }
             const delay_ms = self.random.intRangeAtMost(u16, 10, 200);
-            return try self.netem_rules_add(.delay, &.{
-                try self.shell.fmt("{d}ms", .{delay_ms}),
-                try self.shell.fmt("{d}ms", .{@divFloor(delay_ms, 10)}),
-                "distribution",
-                "normal",
-            });
+            self.netem_rules.delay = .{
+                .time_ms = delay_ms,
+                .jitter_ms = @divFloor(delay_ms, 10),
+                .correlation_pct = 75,
+            };
+            try self.netem_sync();
+            return true;
         },
-        .network_delay_remove => return try self.netem_rules_delete(.delay),
+        .network_delay_remove => {
+            if (self.netem_rules.delay == null) {
+                return false;
+            }
+            self.netem_rules.delay = null;
+            try self.netem_sync();
+            return true;
+        },
         .network_loss_add => {
-            const loss_pct = self.random.intRangeAtMost(u16, 5, 100);
-            return try self.netem_rules_add(.loss, &.{
-                try self.shell.fmt("{d}%", .{loss_pct}),
-                "75%",
-            });
+            if (self.netem_rules.loss != null) {
+                return false;
+            }
+            const loss_pct = self.random.intRangeAtMost(u8, 5, 100);
+            self.netem_rules.loss = .{
+                .loss_pct = loss_pct,
+                .correlation_pct = 75,
+            };
+            try self.netem_sync();
+            return true;
         },
-        .network_loss_remove => return try self.netem_rules_delete(.loss),
+        .network_loss_remove => {
+            if (self.netem_rules.loss == null) {
+                return false;
+            }
+            self.netem_rules.loss = null;
+            try self.netem_sync();
+            return true;
+        },
         .sleep => {
             std.time.sleep(3 * std.time.ns_per_s);
             return true;
@@ -134,66 +151,75 @@ fn restart_replica(self: *Self) !bool {
 
 const netem = struct {
     // See: https://man7.org/linux/man-pages/man8/tc-netem.8.html
-    const Op = enum {
-        limit,
-        delay,
-        loss,
-        corrupt,
-        duplication,
-        reordering,
-        rate,
-        slot,
-        seed,
+    const Rules = struct {
+        delay: ?struct {
+            time_ms: u32,
+            jitter_ms: u32,
+            correlation_pct: u8,
+        },
+        loss: ?struct {
+            loss_pct: u8,
+            correlation_pct: u8,
+        },
+        // Others not implemented: limit, corrupt, duplication, reordering, rate, slot, seed
     };
-    const Args = []const []const u8;
 };
 
-fn netem_rules_add(self: *Self, op: netem.Op, args: netem.Args) !bool {
-    if (self.netem_rules.contains(op)) {
-        return false;
+fn netem_sync(self: *Self) !void {
+    const args_max = (std.meta.fields(netem.Rules).len + 1) * 8;
+    var rules_buf = std.mem.zeroes([args_max][]const u8);
+    var rules = std.ArrayListUnmanaged([]const u8).initBuffer(rules_buf[0..]);
+
+    rules.appendSliceAssumeCapacity(&.{ "tc", "qdisc", "replace", "dev", "lo", "root", "netem" });
+
+    var args_delay_time = std.mem.zeroes([4]u8);
+    var args_delay_jitter = std.mem.zeroes([4]u8);
+    var args_delay_correlation = std.mem.zeroes([4]u8);
+    var args_loss_pct = std.mem.zeroes([4]u8);
+    var args_loss_correlation = std.mem.zeroes([4]u8);
+
+    if (self.netem_rules.delay) |delay| {
+        rules.appendAssumeCapacity("delay");
+        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+            args_delay_time[0..],
+            "{d}ms",
+            .{delay.time_ms},
+        ));
+        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+            args_delay_jitter[0..],
+            "{d}ms",
+            .{delay.jitter_ms},
+        ));
+        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+            args_delay_correlation[0..],
+            "{d}%",
+            .{delay.correlation_pct},
+        ));
+        rules.appendAssumeCapacity("distribution");
+        rules.appendAssumeCapacity("normal");
     }
-    try self.netem_rules.put(op, try self.allocator.dupe([]const u8, args));
-    assert(try self.netem_sync());
-    return true;
-}
 
-fn netem_rules_delete(self: *Self, op: netem.Op) !bool {
-    if (self.netem_rules.get(op)) |args| {
-        self.allocator.free(args);
-        assert(self.netem_rules.remove(op));
-        assert(try self.netem_sync());
-        return true;
-    } else {
-        return false;
-    }
-}
-
-fn netem_sync(self: *Self) !bool {
-    if (self.netem_rules.count() == 0) {
-        try self.network_netem_delete_all();
-        return true;
+    if (self.netem_rules.loss) |loss| {
+        rules.appendAssumeCapacity("loss");
+        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+            args_loss_pct[0..],
+            "{d}%",
+            .{loss.loss_pct},
+        ));
+        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+            args_loss_correlation[0..],
+            "{d}%",
+            .{loss.correlation_pct},
+        ));
     }
 
-    var all_args = std.ArrayList([]const u8).init(self.allocator);
-    defer all_args.deinit();
+    // Everything stack-allocated and simple up to here. Now this feels like a shame just for
+    // logging:
+    const rules_formatted = try std.mem.join(self.allocator, " ", rules.items);
+    defer self.allocator.free(rules_formatted);
+    log.info("syncing netem: {s}", .{rules_formatted});
 
-    var it = self.netem_rules.iterator();
-    while (it.next()) |kv| {
-        try all_args.append(@tagName(kv.key_ptr.*));
-        try all_args.appendSlice(kv.value_ptr.*);
-    }
-
-    const args_joined = try join_args(self.allocator, all_args.items);
-    defer self.allocator.free(args_joined);
-
-    log.info("syncing netem {s}", .{args_joined});
-
-    self.shell.exec(
-        "tc qdisc replace dev lo root netem {args}",
-        .{ .args = all_args.items },
-    ) catch return false;
-
-    return true;
+    try self.shell.exec("{args}", .{ .args = rules.items });
 }
 
 fn network_netem_delete_all(self: *Self) !void {
