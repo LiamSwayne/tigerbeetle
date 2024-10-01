@@ -130,7 +130,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
 
     // Set up nemesis (fault injector)
     var prng = std.rand.DefaultPrng.init(0);
-    const nemesis = try Nemesis.init(shell, allocator, prng.random(), &replicas);
+    const nemesis = try Nemesis.init(allocator, prng.random(), &replicas);
     defer nemesis.deinit();
 
     // Let the workload finish by itself, or kill it after we've run for the required duration.

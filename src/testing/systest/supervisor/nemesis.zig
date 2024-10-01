@@ -1,7 +1,6 @@
 //! The nemesis injects faults into a running cluster, to test for fault tolerance. It's inspired
 //! by Jepsen, but is not so advanced.
 const std = @import("std");
-const Shell = @import("../../../shell.zig");
 const LoggedProcess = @import("./logged_process.zig");
 
 const assert = std.debug.assert;
@@ -10,14 +9,12 @@ const log = std.log.scoped(.nemesis);
 const Self = @This();
 const replicas_count_max = 16;
 
-shell: *Shell,
 allocator: std.mem.Allocator,
 random: std.rand.Random,
 replicas: []*LoggedProcess,
 netem_rules: netem.Rules,
 
 pub fn init(
-    shell: *Shell,
     allocator: std.mem.Allocator,
     random: std.rand.Random,
     replicas: []*LoggedProcess,
@@ -27,7 +24,6 @@ pub fn init(
     const nemesis = try allocator.create(Self);
 
     nemesis.* = .{
-        .shell = shell,
         .allocator = allocator,
         .random = random,
         .replicas = replicas,
@@ -167,10 +163,10 @@ const netem = struct {
 
 fn netem_sync(self: *Self) !void {
     const args_max = (std.meta.fields(netem.Rules).len + 1) * 8;
-    var rules_buf = std.mem.zeroes([args_max][]const u8);
-    var rules = std.ArrayListUnmanaged([]const u8).initBuffer(rules_buf[0..]);
+    var args_buf = std.mem.zeroes([args_max][]const u8);
+    var args = std.ArrayListUnmanaged([]const u8).initBuffer(args_buf[0..]);
 
-    rules.appendSliceAssumeCapacity(&.{ "tc", "qdisc", "replace", "dev", "lo", "root", "netem" });
+    args.appendSliceAssumeCapacity(&.{ "tc", "qdisc", "replace", "dev", "lo", "root", "netem" });
 
     var args_delay_time = std.mem.zeroes([4]u8);
     var args_delay_jitter = std.mem.zeroes([4]u8);
@@ -179,34 +175,34 @@ fn netem_sync(self: *Self) !void {
     var args_loss_correlation = std.mem.zeroes([4]u8);
 
     if (self.netem_rules.delay) |delay| {
-        rules.appendAssumeCapacity("delay");
-        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+        args.appendAssumeCapacity("delay");
+        args.appendAssumeCapacity(try std.fmt.bufPrint(
             args_delay_time[0..],
             "{d}ms",
             .{delay.time_ms},
         ));
-        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+        args.appendAssumeCapacity(try std.fmt.bufPrint(
             args_delay_jitter[0..],
             "{d}ms",
             .{delay.jitter_ms},
         ));
-        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+        args.appendAssumeCapacity(try std.fmt.bufPrint(
             args_delay_correlation[0..],
             "{d}%",
             .{delay.correlation_pct},
         ));
-        rules.appendAssumeCapacity("distribution");
-        rules.appendAssumeCapacity("normal");
+        args.appendAssumeCapacity("distribution");
+        args.appendAssumeCapacity("normal");
     }
 
     if (self.netem_rules.loss) |loss| {
-        rules.appendAssumeCapacity("loss");
-        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+        args.appendAssumeCapacity("loss");
+        args.appendAssumeCapacity(try std.fmt.bufPrint(
             args_loss_pct[0..],
             "{d}%",
             .{loss.loss_pct},
         ));
-        rules.appendAssumeCapacity(try std.fmt.bufPrint(
+        args.appendAssumeCapacity(try std.fmt.bufPrint(
             args_loss_correlation[0..],
             "{d}%",
             .{loss.correlation_pct},
@@ -214,16 +210,43 @@ fn netem_sync(self: *Self) !void {
     }
 
     // Everything stack-allocated and simple up to here. Now this feels like a shame just for
-    // logging:
-    const rules_formatted = try std.mem.join(self.allocator, " ", rules.items);
+    // logging. We could log just the `self.netem_rules` stuct with `{any}`, but it's a bit verbose.
+    const rules_formatted = try std.mem.join(self.allocator, " ", args.items);
     defer self.allocator.free(rules_formatted);
     log.info("syncing netem: {s}", .{rules_formatted});
 
-    try self.shell.exec("{args}", .{ .args = rules.items });
+    try self.exec_silent(args.items);
 }
 
 fn network_netem_delete_all(self: *Self) !void {
-    try self.shell.exec("tc qdisc del dev lo root", .{});
+    try self.exec_silent(&.{ "tc", "qdisc", "del", "dev", "lo", "root" });
+}
+
+fn exec_silent(self: *Self, argv: []const []const u8) !void {
+    assert(argv.len > 0);
+
+    var child = std.process.Child.init(argv, self.allocator);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code == 0) {
+                return;
+            } else {
+                log.err("{s} return {d}", .{ argv[0], code });
+                return error.ProcessFailed;
+            }
+        },
+        else => {
+            log.err("{s} failed with: {any}", .{ argv[0], term });
+            return error.ProcessFailed;
+        },
+    }
 }
 
 /// Draw an enum value from `E` based on the relative `weights`. Fields in the weights struct must
