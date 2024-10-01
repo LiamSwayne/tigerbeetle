@@ -233,6 +233,10 @@ fn exec_silent(self: *Self, argv: []const []const u8) !void {
 
     try child.spawn();
 
+    errdefer {
+        _ = child.kill() catch {};
+    }
+
     const term = try child.wait();
     switch (term) {
         .Exited => |code| {
