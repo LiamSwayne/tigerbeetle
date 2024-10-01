@@ -283,18 +283,3 @@ fn weighted(
     }
     unreachable;
 }
-
-fn join_args(allocator: std.mem.Allocator, args: []const []const u8) ![]const u8 {
-    assert(args.len > 0);
-
-    var out = std.ArrayList(u8).init(allocator);
-    const writer = out.writer();
-
-    try writer.writeAll(args[0]);
-    for (args[1..]) |arg| {
-        try writer.writeByte(' ');
-        try writer.writeAll(arg);
-    }
-
-    return out.toOwnedSlice();
-}
