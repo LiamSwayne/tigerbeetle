@@ -22,6 +22,7 @@ pub fn init(
     assert(replicas.len <= replicas_count_max);
 
     const nemesis = try allocator.create(Self);
+    errdefer allocator.destroy(nemesis);
 
     nemesis.* = .{
         .allocator = allocator,
