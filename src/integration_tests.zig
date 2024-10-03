@@ -526,7 +526,7 @@ test "systest smoke" {
         try shell.exec("mvn clean install --batch-mode --quiet", .{});
     }
 
-    log.info("Running 1m systest...", .{});
+    log.info("running 1m systest...", .{});
     try shell.exec(
         \\ unshare -nfr 
         \\   ./zig/zig build scripts -- systest 
@@ -535,5 +535,5 @@ test "systest smoke" {
     , .{
         .tigerbeetle = tigerbeetle,
     });
-    log.info("Systest passed", .{});
+    log.info("systest passed", .{});
 }

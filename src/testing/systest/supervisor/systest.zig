@@ -61,7 +61,7 @@ pub const CLIArgs = struct {
 
 pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     if (builtin.os.tag == .windows) {
-        log.err("supervisor: systest is not supported for Windows", .{});
+        log.err("systest is not supported for Windows", .{});
         return error.NotSupported;
     }
 
@@ -71,7 +71,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     // Check that we are running as root
     if (!std.mem.eql(u8, try shell.exec_stdout("id -u", .{}), "0")) {
         log.err(
-            "This script needs to be run in a separate namespace using `unshare -nfr`",
+            "this script needs to be run in a separate namespace using 'unshare -nfr'",
             .{},
         );
         std.process.exit(1);
@@ -81,7 +81,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     try shell.exec("ip link set up dev lo", .{});
 
     log.info(
-        "supervisor: starting test with target runtime of {d}m",
+        "starting test with target runtime of {d}m",
         .{args.test_duration_minutes},
     );
     const test_duration_ns = @as(u64, @intCast(args.test_duration_minutes)) * std.time.ns_per_min;
@@ -143,12 +143,12 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
                 std.time.sleep(100 * std.time.ns_per_ms);
             }
             if (workload.state() == .completed) {
-                log.info("supervisor: workload completed by itself", .{});
+                log.info("workload completed by itself", .{});
                 break :term try workload.wait();
             }
         }
 
-        log.info("supervisor: terminating workload due to max duration", .{});
+        log.info("terminating workload due to max duration", .{});
         break :term try workload.terminate();
     };
 
@@ -166,23 +166,23 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     switch (workload_result) {
         .Exited => |code| {
             if (code == 128 + std.posix.SIG.KILL) {
-                log.info("supervisor: workload terminated (SIGKILL) as requested", .{});
+                log.info("workload terminated (SIGKILL) as requested", .{});
             } else if (code == 0) {
-                log.info("supervisor: workload exited successfully", .{});
+                log.info("workload exited successfully", .{});
             } else {
-                log.info("supervisor: workload exited unexpectedly with code {d}", .{code});
+                log.info("workload exited unexpectedly with code {d}", .{code});
                 std.process.exit(1);
             }
         },
         .Signal => |signal| {
             switch (signal) {
                 std.posix.SIG.KILL => log.info(
-                    "supervisor: workload terminated (SIGKILL) as requested",
+                    "workload terminated (SIGKILL) as requested",
                     .{},
                 ),
                 else => {
                     log.info(
-                        "supervisor: workload exited unexpectedly with on signal {d}",
+                        "workload exited unexpectedly with on signal {d}",
                         .{signal},
                     );
                     std.process.exit(1);
@@ -190,7 +190,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             }
         },
         else => {
-            log.info("supervisor: unexpected workload result: {any}", .{workload_result});
+            log.info("unexpected workload result: {any}", .{workload_result});
             return error.TestFailed;
         },
     }
