@@ -219,10 +219,13 @@ fn start_workload(shell: *Shell, allocator: std.mem.Allocator) !*LoggedProcess {
     return process;
 }
 
+/// Formats the ports as comma-separated. Caller owns slice after successful return.
 fn comma_separate_ports(allocator: std.mem.Allocator, ports: []const u16) ![]const u8 {
     assert(ports.len > 0);
 
     var out = std.ArrayList(u8).init(allocator);
+    errdefer out.deinit();
+
     const writer = out.writer();
 
     try std.fmt.format(writer, "{d}", .{ports[0]});
