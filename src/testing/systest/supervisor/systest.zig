@@ -138,8 +138,8 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     // Note that the nemesis is blocking in this loop.
     const workload_result = term: {
         while (std.time.nanoTimestamp() - time_start < test_duration_ns) {
-            // Try to do something funky in the nemesis, and if it fails, wait for a while
-            // before trying again.
+            // Try to do something funky in the nemesis. If the picked action is
+            // not enabled (false is returned), wait for a while before trying again.
             if (!try nemesis.wreak_havoc()) {
                 std.time.sleep(100 * std.time.ns_per_ms);
             }

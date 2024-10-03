@@ -50,6 +50,10 @@ const Havoc = enum {
     sleep,
 };
 
+pub const Enabledness = enum { enabled, disabled };
+
+/// Picks a random action and tries to execute it, returning true on success.
+/// If the picked action is not "enabled" it returns false.
 pub fn wreak_havoc(self: *Self) !bool {
     const havoc = weighted(self.random, Havoc, .{
         .sleep = 50,
