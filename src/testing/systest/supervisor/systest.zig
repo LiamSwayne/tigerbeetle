@@ -41,6 +41,7 @@
 //! * better workload(s)
 //! * filesystem fault injection?
 //! * cluster membership changes?
+//! * upgrades?
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -68,7 +69,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     const tmp_dir = try shell.create_tmp_dir();
     defer shell.cwd.deleteDir(tmp_dir) catch {};
 
-    // Check that we are running as root
+    // Check that we are running as root.
     if (!std.mem.eql(u8, try shell.exec_stdout("id -u", .{}), "0")) {
         log.err(
             "this script needs to be run in a separate namespace using 'unshare -nfr'",
@@ -77,7 +78,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         std.process.exit(1);
     }
 
-    // Ensure loopback can be used
+    // Ensure loopback can be used for network fault injection by the nemesis.
     try shell.exec("ip link set up dev lo", .{});
 
     log.info(
@@ -92,7 +93,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         const name = try shell.fmt("replica{d}", .{i});
         const datafile = try shell.fmt("{s}/1_{d}.tigerbeetle", .{ tmp_dir, i });
 
-        // Format datafile
+        // Format each replica's datafile.
         try shell.exec(
             \\{tigerbeetle} format 
             \\  --cluster=1
@@ -106,7 +107,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             .datafile = datafile,
         });
 
-        // Start replica
+        // Start replica.
         const addresses = try shell.fmt("--addresses={s}", .{
             try comma_separate_ports(shell.arena.allocator(), &replica_ports),
         });
@@ -124,11 +125,11 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         try process.start();
     }
 
-    // Start workload
+    // Start workload.
     const workload = try start_workload(shell, allocator);
     errdefer workload.destroy();
 
-    // Set up nemesis (fault injector)
+    // Set up nemesis (fault injector).
     var prng = std.rand.DefaultPrng.init(0);
     const nemesis = try Nemesis.init(allocator, prng.random(), &replicas);
     defer nemesis.deinit();
