@@ -117,19 +117,19 @@ pub fn wreak_havoc(self: *Self) !bool {
 
 fn random_replica_in_state(self: *Self, state: LoggedProcess.State) ?*LoggedProcess {
     var matching: [replicas_count_max]*LoggedProcess = undefined;
-    var pos: u8 = 0;
+    var count: u8 = 0;
 
     for (self.replicas) |replica| {
         if (replica.state() == state) {
-            matching[pos] = replica;
-            pos += 1;
+            matching[count] = replica;
+            count += 1;
         }
     }
-    if (pos == 0) {
+    if (count == 0) {
         return null;
+    } else {
+        return matching[self.random.uintLessThan(usize, count)];
     }
-    std.rand.shuffle(self.random, *LoggedProcess, matching[0..pos]);
-    return matching[0];
 }
 
 fn terminate_replica(self: *Self) !bool {
