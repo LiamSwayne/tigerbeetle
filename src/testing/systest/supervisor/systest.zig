@@ -86,7 +86,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         .{args.test_duration_minutes},
     );
     const test_duration_ns = @as(u64, @intCast(args.test_duration_minutes)) * std.time.ns_per_min;
-    const time_start = std.time.nanoTimestamp();
+    const test_deadline = std.time.nanoTimestamp() + test_duration_ns;
 
     var replicas: [replica_count]*LoggedProcess = undefined;
     for (0..replica_count) |i| {
@@ -137,7 +137,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     // Let the workload finish by itself, or kill it after we've run for the required duration.
     // Note that the nemesis is blocking in this loop.
     const workload_result = term: {
-        while (std.time.nanoTimestamp() - time_start < test_duration_ns) {
+        while (std.time.nanoTimestamp() < test_deadline) {
             // Try to do something funky in the nemesis. If the picked action is
             // not enabled (false is returned), wait for a while before trying again.
             if (!try nemesis.wreak_havoc()) {
