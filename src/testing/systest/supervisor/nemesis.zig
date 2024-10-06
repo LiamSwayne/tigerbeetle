@@ -134,18 +134,18 @@ fn random_replica_in_state(self: *Self, state: Replica.State) ?*Replica {
 
 fn terminate_replica(self: *Self) !bool {
     if (self.random_replica_in_state(.running)) |replica| {
-        log.info("stopping {s}", .{replica.name});
+        log.info("stopping replica {d}", .{replica.replica_index});
         _ = try replica.terminate();
-        log.info("{s} stopped", .{replica.name});
+        log.info("replica {d} stopped", .{replica.replica_index});
         return true;
     } else return false;
 }
 
 fn restart_replica(self: *Self) !bool {
     if (self.random_replica_in_state(.terminated)) |replica| {
-        log.info("restarting {s}", .{replica.name});
+        log.info("restarting replica {d}", .{replica.replica_index});
         try replica.start();
-        log.info("{s} back up again", .{replica.name});
+        log.info("replica {d} back up again", .{replica.replica_index});
         return true;
     } else return false;
 }

@@ -110,9 +110,9 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         // Start replica.
         var replica = try Replica.create(
             allocator,
-            @intCast(i),
             args.tigerbeetle_executable,
             &replica_ports,
+            @intCast(i),
             datafile,
         );
         errdefer replica.destroy();
@@ -185,7 +185,6 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
 }
 
 fn start_workload(shell: *Shell, allocator: std.mem.Allocator) !*LoggedProcess {
-    const name = "workload";
     const client_jar = "src/clients/java/target/tigerbeetle-java-0.0.1-SNAPSHOT.jar";
     const workload_jar = "src/testing/systest/workload/target/workload-0.0.1-SNAPSHOT.jar";
 
@@ -204,5 +203,5 @@ fn start_workload(shell: *Shell, allocator: std.mem.Allocator) !*LoggedProcess {
         &replica_ports,
     ));
 
-    return try LoggedProcess.spawn(allocator, name, argv, .{ .env = &env });
+    return try LoggedProcess.spawn(allocator, argv, .{ .env = &env });
 }

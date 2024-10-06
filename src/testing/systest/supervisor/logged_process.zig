@@ -1,4 +1,4 @@
-//! Runs a subprocess and logs its stderr output. The processes can terminate by its own or be
+//! Runs a subprocess inheriting its stderr output. The processes can terminate by its own or be
 //! actively terminated with a SIGKILL.
 //!
 //! We use this to run a cluster of replicas and the workload.
@@ -19,7 +19,6 @@ const Options = struct { env: ?*const std.process.EnvMap = null };
 
 // Passed in to init
 allocator: std.mem.Allocator,
-name: []const u8,
 argv: []const []const u8,
 options: Options,
 
@@ -34,7 +33,6 @@ current_state: AtomicState,
 
 pub fn spawn(
     allocator: std.mem.Allocator,
-    name: []const u8,
     argv: []const []const u8,
     options: Options,
 ) !*Self {
@@ -46,7 +44,6 @@ pub fn spawn(
 
     self.* = .{
         .allocator = allocator,
-        .name = name,
         .cwd = cwd,
         .argv = argv,
         .options = options,
@@ -60,7 +57,7 @@ pub fn spawn(
     self.child.env_map = options.env;
     self.child.stdin_behavior = .Pipe;
     self.child.stdout_behavior = .Ignore;
-    self.child.stderr_behavior = .Pipe;
+    self.child.stderr_behavior = .Inherit;
 
     try self.child.spawn();
 
@@ -100,31 +97,6 @@ pub fn spawn(
         .{ self.child.stdin.?, self },
     );
 
-    // The child process' stderr is echoed to stderr with a name prefix.
-    self.stderr_thread = try std.Thread.spawn(
-        .{},
-        struct {
-            fn log_stderr(stderr: std.fs.File, process: *Self) void {
-                while (process.state() == .running) {
-                    var buf: [1024 * 8]u8 = undefined;
-                    const line_opt = stderr.reader().readUntilDelimiterOrEof(
-                        &buf,
-                        '\n',
-                    ) catch |err| {
-                        log.warn("{s}: failed reading stderr: {any}", .{ process.name, err });
-                        continue;
-                    };
-                    if (line_opt) |line| {
-                        log.info("{s}: {s}", .{ process.name, line });
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }.log_stderr,
-        .{ self.child.stderr.?, self },
-    );
-
     return self;
 }
 
@@ -158,14 +130,13 @@ pub fn terminate(
         }
     } catch |err| {
         std.debug.print(
-            "{s}: failed to kill process: {any}\n",
-            .{ self.name, err },
+            "failed to kill process {d}: {any}\n",
+            .{ self.child.id, err },
         );
     };
 
     // Await threads
     self.stdin_thread.join();
-    self.stderr_thread.join();
 
     // Await the terminated process
     const term = self.child.wait() catch unreachable;
@@ -186,7 +157,6 @@ pub fn wait(
 
     // Await threads
     self.stdin_thread.join();
-    self.stderr_thread.join();
 
     self.current_state.store(.completed, .seq_cst);
 
@@ -200,8 +170,7 @@ fn expect_state_in(self: *Self, comptime valid_states: anytype) void {
         if (actual_state == valid) return;
     }
 
-    log.err("{s}: expected state in {any} but actual state is {s}", .{
-        self.name,
+    log.err("expected state in {any} but actual state is {s}", .{
         valid_states,
         @tagName(actual_state),
     });
@@ -282,8 +251,7 @@ test "LoggedProcess: starts and stops" {
 
     const argv: []const []const u8 = &.{test_exe};
 
-    const name = "test program";
-    var process = try Self.spawn(allocator, name, argv, .{});
+    var process = try Self.spawn(allocator, argv, .{});
     defer process.destroy();
 
     std.time.sleep(10 * std.time.ns_per_ms);

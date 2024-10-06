@@ -13,29 +13,25 @@ pub const State = enum(u8) { initial, running, terminated, completed };
 allocator: std.mem.Allocator,
 executable_path: []const u8,
 replica_ports: []const u16,
+replica_index: u8,
 datafile: []const u8,
-
-// Allocated by create:
-name: []const u8,
 
 // Lifecycle state:
 process: ?*LoggedProcess,
 
 pub fn create(
     allocator: std.mem.Allocator,
-    replica_index: u8,
     executable_path: []const u8,
     replica_ports: []const u16,
+    replica_index: u8,
     datafile: []const u8,
 ) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
 
-    const name = try std.fmt.allocPrint(allocator, "replica{d}", .{replica_index});
-
     self.* = .{
         .allocator = allocator,
-        .name = name,
+        .replica_index = replica_index,
         .executable_path = executable_path,
         .replica_ports = replica_ports,
         .datafile = datafile,
@@ -50,7 +46,6 @@ pub fn destroy(self: *Self) void {
     if (self.process) |process| {
         process.destroy();
     }
-    allocator.free(self.name);
     allocator.destroy(self);
 }
 
@@ -90,7 +85,7 @@ pub fn start(self: *Self) !void {
     });
     defer self.allocator.free(argv);
 
-    self.process = try LoggedProcess.spawn(self.allocator, self.name, argv, .{});
+    self.process = try LoggedProcess.spawn(self.allocator, argv, .{});
 }
 
 pub fn terminate(
