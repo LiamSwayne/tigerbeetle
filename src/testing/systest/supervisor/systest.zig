@@ -47,6 +47,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Shell = @import("../../../shell.zig");
 const LoggedProcess = @import("./logged_process.zig");
+const Replica = @import("./replica.zig");
 const Nemesis = @import("./nemesis.zig");
 const log = std.log.scoped(.systest);
 
@@ -88,9 +89,8 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     const test_duration_ns = @as(u64, @intCast(args.test_duration_minutes)) * std.time.ns_per_min;
     const test_deadline = std.time.nanoTimestamp() + test_duration_ns;
 
-    var replicas: [replica_count]*LoggedProcess = undefined;
+    var replicas: [replica_count]*Replica = undefined;
     for (0..replica_count) |i| {
-        const name = try shell.fmt("replica{d}", .{i});
         const datafile = try shell.fmt("{s}/1_{d}.tigerbeetle", .{ tmp_dir, i });
 
         // Format each replica's datafile.
@@ -108,21 +108,18 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         });
 
         // Start replica.
-        const addresses = try shell.fmt("--addresses={s}", .{
-            try comma_separate_ports(shell.arena.allocator(), &replica_ports),
-        });
-        const argv = try shell.arena.allocator().dupe([]const u8, &.{
+        var replica = try Replica.create(
+            allocator,
+            @intCast(i),
             args.tigerbeetle_executable,
-            "start",
-            addresses,
+            &replica_ports,
             datafile,
-        });
+        );
+        errdefer replica.destroy();
 
-        var process = try LoggedProcess.create(allocator, name, argv, .{});
-        errdefer process.destroy();
+        try replica.start();
 
-        replicas[i] = process;
-        try process.start();
+        replicas[i] = replica;
     }
 
     // Start workload.
@@ -212,34 +209,10 @@ fn start_workload(shell: *Shell, allocator: std.mem.Allocator) !*LoggedProcess {
     });
 
     var env = try std.process.getEnvMap(shell.arena.allocator());
-    try env.put("REPLICAS", try comma_separate_ports(shell.arena.allocator(), &replica_ports));
+    try env.put("REPLICAS", try LoggedProcess.comma_separate_ports(
+        shell.arena.allocator(),
+        &replica_ports,
+    ));
 
-    var process = try LoggedProcess.create(allocator, name, argv, .{ .env = &env });
-    try process.start();
-    return process;
-}
-
-/// Formats the ports as comma-separated. Caller owns slice after successful return.
-fn comma_separate_ports(allocator: std.mem.Allocator, ports: []const u16) ![]const u8 {
-    assert(ports.len > 0);
-
-    var out = std.ArrayList(u8).init(allocator);
-    errdefer out.deinit();
-
-    const writer = out.writer();
-
-    try std.fmt.format(writer, "{d}", .{ports[0]});
-    for (ports[1..]) |port| {
-        try writer.writeByte(',');
-        try std.fmt.format(writer, "{d}", .{port});
-    }
-
-    return out.toOwnedSlice();
-}
-
-test comma_separate_ports {
-    const formatted = try comma_separate_ports(std.testing.allocator, &.{ 3000, 3001, 3002 });
-    defer std.testing.allocator.free(formatted);
-
-    try std.testing.expectEqualStrings("3000,3001,3002", formatted);
+    return try LoggedProcess.spawn(allocator, name, argv, .{ .env = &env });
 }

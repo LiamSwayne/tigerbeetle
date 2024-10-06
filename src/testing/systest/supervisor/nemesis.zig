@@ -1,7 +1,7 @@
 //! The nemesis injects faults into a running cluster, to test for fault tolerance. It's inspired
 //! by Jepsen, but is not so advanced.
 const std = @import("std");
-const LoggedProcess = @import("./logged_process.zig");
+const Replica = @import("./replica.zig");
 
 const assert = std.debug.assert;
 const log = std.log.scoped(.nemesis);
@@ -11,13 +11,13 @@ const replicas_count_max = 16;
 
 allocator: std.mem.Allocator,
 random: std.rand.Random,
-replicas: []*LoggedProcess,
+replicas: []*Replica,
 netem_rules: netem.Rules,
 
 pub fn init(
     allocator: std.mem.Allocator,
     random: std.rand.Random,
-    replicas: []*LoggedProcess,
+    replicas: []*Replica,
 ) !*Self {
     assert(replicas.len <= replicas_count_max);
 
@@ -115,8 +115,8 @@ pub fn wreak_havoc(self: *Self) !bool {
     }
 }
 
-fn random_replica_in_state(self: *Self, state: LoggedProcess.State) ?*LoggedProcess {
-    var matching: [replicas_count_max]*LoggedProcess = undefined;
+fn random_replica_in_state(self: *Self, state: Replica.State) ?*Replica {
+    var matching: [replicas_count_max]*Replica = undefined;
     var count: u8 = 0;
 
     for (self.replicas) |replica| {
