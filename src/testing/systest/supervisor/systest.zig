@@ -162,16 +162,6 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     }
 
     switch (workload_result) {
-        .Exited => |code| {
-            if (code == 128 + std.posix.SIG.KILL) {
-                log.info("workload terminated (SIGKILL) as requested", .{});
-            } else if (code == 0) {
-                log.info("workload exited successfully", .{});
-            } else {
-                log.info("workload exited unexpectedly with code {d}", .{code});
-                std.process.exit(1);
-            }
-        },
         .Signal => |signal| {
             switch (signal) {
                 std.posix.SIG.KILL => log.info(
