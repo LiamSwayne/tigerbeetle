@@ -67,7 +67,7 @@ pub fn spawn(
 
     // Zig doesn't have non-blocking version of child.wait, so we use `BrokenPipe`
     // on writing to child's stdin to detect if a child is dead in a non-blocking
-    // manner. Checks once a second second in a separate thread.
+    // manner. Checks once a second in a separate thread.
     _ = try std.posix.fcntl(
         self.child.stdin.?.handle,
         std.posix.F.SETFL,
@@ -85,7 +85,15 @@ pub fn spawn(
                             error.BrokenPipe,
                             error.NotOpenForWriting,
                             => {
-                                process.current_state.store(.completed, .seq_cst);
+                                // Only write the state variable in case the process is still
+                                // considered running. If it was actively terminated, we don't
+                                // want to overwrite that state.
+                                _ = process.current_state.cmpxchgStrong(
+                                    .running,
+                                    .completed,
+                                    .seq_cst,
+                                    .seq_cst,
+                                );
                                 break;
                             },
                             else => @panic(@errorName(err)),
@@ -117,7 +125,7 @@ pub fn terminate(
     self.expect_state_in(.{.running});
     defer self.expect_state_in(.{.terminated});
 
-    // Terminate the process
+    // Terminate the process.
     //
     // Uses the same method as `src/testing/tmp_tigerbeetle.zig`.
     // See: https://github.com/ziglang/zig/issues/16820
@@ -135,10 +143,10 @@ pub fn terminate(
         );
     };
 
-    // Await threads
+    // Await thread.
     self.stdin_thread.join();
 
-    // Await the terminated process
+    // Await the terminated process.
     const term = self.child.wait() catch unreachable;
 
     self.current_state.store(.terminated, .seq_cst);
@@ -149,16 +157,16 @@ pub fn terminate(
 pub fn wait(
     self: *Self,
 ) !std.process.Child.Term {
-    self.expect_state_in(.{ .running, .completed });
-    defer self.expect_state_in(.{.completed});
+    self.expect_state_in(.{ .running, .terminated, .completed });
+    defer self.expect_state_in(.{ .terminated, .completed });
 
-    // Wait until the process runs to completion
+    // Wait until the process runs to completion.
     const term = self.child.wait();
 
-    // Await threads
-    self.stdin_thread.join();
-
-    self.current_state.store(.completed, .seq_cst);
+    if (self.state() == .running) {
+        // Await thread in case this process is still running.
+        self.stdin_thread.join();
+    }
 
     return term;
 }

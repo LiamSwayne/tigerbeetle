@@ -42,7 +42,6 @@ pub fn deinit(self: *Self) void {
 
 const Havoc = enum {
     terminate_replica,
-    restart_replica,
     network_delay_add,
     network_delay_remove,
     network_loss_add,
@@ -58,7 +57,6 @@ pub fn wreak_havoc(self: *Self) !bool {
     const havoc = weighted(self.random, Havoc, .{
         .sleep = 50,
         .terminate_replica = 1,
-        .restart_replica = 10,
         .network_delay_add = 1,
         .network_delay_remove = 10,
         .network_loss_add = 1,
@@ -66,7 +64,6 @@ pub fn wreak_havoc(self: *Self) !bool {
     });
     switch (havoc) {
         .terminate_replica => return try self.terminate_replica(),
-        .restart_replica => return try self.restart_replica(),
         .network_delay_add => {
             if (self.netem_rules.delay != null) {
                 return false;
@@ -137,15 +134,6 @@ fn terminate_replica(self: *Self) !bool {
         log.info("stopping replica {d}", .{replica.replica_index});
         _ = try replica.terminate();
         log.info("replica {d} stopped", .{replica.replica_index});
-        return true;
-    } else return false;
-}
-
-fn restart_replica(self: *Self) !bool {
-    if (self.random_replica_in_state(.terminated)) |replica| {
-        log.info("restarting replica {d}", .{replica.replica_index});
-        try replica.start();
-        log.info("replica {d} back up again", .{replica.replica_index});
         return true;
     } else return false;
 }

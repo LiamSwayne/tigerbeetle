@@ -141,6 +141,39 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         if (!try nemesis.wreak_havoc()) {
             std.time.sleep(100 * std.time.ns_per_ms);
         }
+
+        // Restart any (by the nemesis) terminated replicas. Any other termination reason
+        // than SIGKILL is considered unexpected and fails the test.
+        for (replicas) |replica| {
+            if (replica.state() == .terminated) {
+                const replica_result = try replica.process.?.wait();
+                switch (replica_result) {
+                    .Signal => |signal| {
+                        switch (signal) {
+                            std.posix.SIG.KILL => {
+                                log.info(
+                                    "restarting terminated replica {d}",
+                                    .{replica.replica_index},
+                                );
+                                try replica.start();
+                            },
+                            else => {
+                                log.err(
+                                    "replica {d} exited unexpectedly with on signal {d}",
+                                    .{ replica.replica_index, signal },
+                                );
+                                std.process.exit(1);
+                            },
+                        }
+                    },
+                    else => {
+                        log.err("unexpected replica result: {any}", .{replica_result});
+                        return error.TestFailed;
+                    },
+                }
+            }
+        }
+
         if (workload.state() == .completed) {
             log.info("workload completed by itself", .{});
             break try workload.wait();
@@ -169,7 +202,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
                     .{},
                 ),
                 else => {
-                    log.info(
+                    log.err(
                         "workload exited unexpectedly with on signal {d}",
                         .{signal},
                     );
@@ -178,7 +211,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             }
         },
         else => {
-            log.info("unexpected workload result: {any}", .{workload_result});
+            log.err("unexpected workload result: {any}", .{workload_result});
             return error.TestFailed;
         },
     }
