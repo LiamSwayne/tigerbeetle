@@ -3,16 +3,16 @@
 //! * a set of TigerBeetle replicas, forming a cluster
 //! * a workload that runs commands and queries against the cluster, verifying its correctness
 //!   (whatever that means is up to the workload)
-//! * a nemesis, which injects various kinds of _faults_.
 //!
-//! Right now the replicas and workload run as child processes, while the nemesis wreaks havoc
-//! in the main loop. After some (configurable) amount of time, the supervisor terminates the
-//! workload and replicas, unless the workload exits on its own.
+//! Right now the replicas and workload run as child processes, while the supervisor restarts
+//! terminated replicas and injects crashes and network faults. After some configurable amount of
+//! time, the supervisor terminates the workload and replicas, unless the workload exits on its own
+//! or if any of the replicas exit unexpectedly.
 //!
 //! If the workload exits successfully, or is actively terminated, the whole systest exits
 //! successfully.
 //!
-//! To launch a 1-minute smoke test, run this command from the repository root:
+//! To launch a one-minute smoke test, run this command from the repository root:
 //!
 //!     $ zig build test:integration -- "systest smoke"
 //!
@@ -48,7 +48,8 @@ const builtin = @import("builtin");
 const Shell = @import("../../../shell.zig");
 const LoggedProcess = @import("./logged_process.zig");
 const Replica = @import("./replica.zig");
-const Nemesis = @import("./nemesis.zig");
+const NetworkFaults = @import("./network_faults.zig");
+const arbitrary = @import("./arbitrary.zig");
 const log = std.log.scoped(.systest);
 
 const assert = std.debug.assert;
@@ -68,7 +69,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
     }
 
     const tmp_dir = try shell.create_tmp_dir();
-    defer shell.cwd.deleteDir(tmp_dir) catch {};
+    defer shell.cwd.deleteTree(tmp_dir) catch {};
 
     // Check that we are running as root.
     if (!std.mem.eql(u8, try shell.exec_stdout("id -u", .{}), "0")) {
@@ -79,8 +80,7 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         std.process.exit(1);
     }
 
-    // Ensure loopback can be used for network fault injection by the nemesis.
-    try shell.exec("ip link set up dev lo", .{});
+    try NetworkFaults.setup(allocator);
 
     log.info(
         "starting test with target runtime of {d}m",
@@ -122,24 +122,56 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         replicas[i] = replica;
     }
 
+    defer {
+        for (replicas) |replica| {
+            // We might have terminated the replica and never restarted it,
+            // so we need to check its state.
+            if (replica.state() == .running) {
+                _ = replica.terminate() catch {};
+            }
+            replica.destroy();
+        }
+    }
+
     // Start workload.
     const workload = try start_workload(shell, allocator);
-    errdefer workload.destroy();
+    defer {
+        if (workload.state() == .running) {
+            _ = workload.terminate() catch {};
+        }
+        workload.destroy();
+    }
 
-    // Set up nemesis (fault injector).
-    var prng = std.rand.DefaultPrng.init(0);
-    const nemesis = try Nemesis.init(allocator, prng.random(), &replicas);
-    defer nemesis.deinit();
+    const seed = std.crypto.random.int(u64);
+    var prng = std.rand.DefaultPrng.init(seed);
+    const random = prng.random();
 
-    // Let the workload finish by itself, or kill it after we've run for the required duration.
-    // Note that the nemesis is blocking in this loop.
     const workload_result =
         while (std.time.nanoTimestamp() < test_deadline)
     {
-        // Try to do something funky in the nemesis. If the picked action is
-        // not enabled (false is returned), wait for a while before trying again.
-        if (!try nemesis.wreak_havoc()) {
-            std.time.sleep(100 * std.time.ns_per_ms);
+        // Things we do in this main loop, except supervising the replicas.
+        const Action = enum { sleep, terminate_replica, mutate_network };
+        switch (arbitrary.weighted(random, Action, .{
+            .sleep = 10,
+            .terminate_replica = 5,
+            .mutate_network = 3,
+        }).?) {
+            .sleep => std.time.sleep(5 * std.time.ns_per_s),
+            .terminate_replica => try terminate_random_replica(random, &replicas),
+            .mutate_network => {
+                var weights = .{
+                    .network_delay_add = 1,
+                    .network_delay_remove = 10,
+                    .network_loss_add = 1,
+                    .network_loss_remove = 10,
+                };
+                NetworkFaults.adjust_probabilities(&weights);
+                if (arbitrary.weighted(random, NetworkFaults.Action, weights)) |action| {
+                    try NetworkFaults.execute(allocator, random, action);
+                } else {
+                    std.time.sleep(100 * std.time.ns_per_ms);
+                }
+            },
         }
 
         // Restart any (by the nemesis) terminated replicas. Any other termination reason
@@ -174,25 +206,17 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             }
         }
 
+        // Let the workload finish by itself if possible.
         if (workload.state() == .completed) {
             log.info("workload completed by itself", .{});
             break try workload.wait();
         }
     } else blk: {
+        // If the workload doesn't complete by itself, kill it after we've run for the
+        // required duration.
         log.info("terminating workload due to max duration", .{});
         break :blk try workload.terminate();
     };
-
-    workload.destroy();
-
-    for (replicas) |replica| {
-        // The nemesis might have terminated the replica and never restarted it,
-        // so we need to check its state.
-        if (replica.state() == .running) {
-            _ = try replica.terminate();
-        }
-        replica.destroy();
-    }
 
     switch (workload_result) {
         .Signal => |signal| {
@@ -214,6 +238,31 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
             log.err("unexpected workload result: {any}", .{workload_result});
             return error.TestFailed;
         },
+    }
+}
+
+fn terminate_random_replica(random: std.Random, replicas: []*Replica) !void {
+    if (random_replica_in_state(random, replicas, .running)) |replica| {
+        log.info("terminating replica {d}", .{replica.replica_index});
+        _ = try replica.terminate();
+        log.info("replica {d} terminating", .{replica.replica_index});
+    } else return error.NoRunningReplica;
+}
+
+fn random_replica_in_state(random: std.Random, replicas: []*Replica, state: Replica.State) ?*Replica {
+    var matching: [replica_count]*Replica = undefined;
+    var count: u8 = 0;
+
+    for (replicas) |replica| {
+        if (replica.state() == state) {
+            matching[count] = replica;
+            count += 1;
+        }
+    }
+    if (count == 0) {
+        return null;
+    } else {
+        return matching[random.uintLessThan(usize, count)];
     }
 }
 

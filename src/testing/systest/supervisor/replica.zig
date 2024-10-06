@@ -77,13 +77,12 @@ pub fn start(self: *Self) !void {
     );
     defer self.allocator.free(addresses);
 
-    const argv = try self.allocator.dupe([]const u8, &.{
+    const argv = &.{
         self.executable_path,
         "start",
         addresses,
         self.datafile,
-    });
-    defer self.allocator.free(argv);
+    };
 
     self.process = try LoggedProcess.spawn(self.allocator, argv, .{});
 }
