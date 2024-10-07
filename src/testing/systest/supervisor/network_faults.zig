@@ -1,13 +1,10 @@
 //! This provides actions for injecting network faults, to test TigerBeetle for fault tolerance.
 //! It's inspired by Jepsen's "nemesis".
 const std = @import("std");
-const Replica = @import("./replica.zig");
 const arbitrary = @import("./arbitrary.zig");
 
 const assert = std.debug.assert;
 const log = std.log.scoped(.network_faults);
-
-const Self = @This();
 
 // Internal state used to track which rules are active.
 // See: https://man7.org/linux/man-pages/man8/tc-netem.8.html
@@ -74,19 +71,13 @@ pub fn execute(allocator: std.mem.Allocator, random: std.Random, action: Action)
 }
 
 /// Zeroes out the weights of actions that are not enabled.
-pub fn adjust_probabilities(weights: *arbitrary.EnumWeights(Action)) void {
-    if (netem_rules.delay != null) {
-        weights.network_delay_add = 0;
-    }
-    if (netem_rules.delay == null) {
-        weights.network_delay_remove = 0;
-    }
-    if (netem_rules.loss != null) {
-        weights.network_loss_add = 0;
-    }
-    if (netem_rules.loss == null) {
-        weights.network_loss_remove = 0;
-    }
+pub fn adjusted_weights(weights: arbitrary.EnumWeights(Action)) arbitrary.EnumWeights(Action) {
+    return .{
+        .network_delay_add = if (netem_rules.delay != null) 0 else weights.network_delay_add,
+        .network_delay_remove = if (netem_rules.delay == null) 0 else weights.network_delay_remove,
+        .network_loss_add = if (netem_rules.loss != null) 0 else weights.network_loss_add,
+        .network_loss_remove = if (netem_rules.loss == null) 0 else weights.network_loss_remove,
+    };
 }
 
 fn netem_sync(allocator: std.mem.Allocator) !void {
@@ -144,10 +135,6 @@ fn netem_sync(allocator: std.mem.Allocator) !void {
     log.info("syncing netem: {any}", .{netem_rules});
 
     try exec_silent(allocator, args.items);
-}
-
-fn network_netem_delete_all(self: *Self) !void {
-    try self.exec_silent(&.{ "tc", "qdisc", "del", "dev", "lo", "root" });
 }
 
 fn exec_silent(allocator: std.mem.Allocator, argv: []const []const u8) !void {

@@ -152,20 +152,19 @@ pub fn main(shell: *Shell, allocator: std.mem.Allocator, args: CLIArgs) !void {
         // Things we do in this main loop, except supervising the replicas.
         const Action = enum { sleep, terminate_replica, mutate_network };
         switch (arbitrary.weighted(random, Action, .{
-            .sleep = 10,
-            .terminate_replica = 5,
-            .mutate_network = 3,
+            .sleep = 4,
+            .terminate_replica = 1,
+            .mutate_network = 2,
         }).?) {
             .sleep => std.time.sleep(5 * std.time.ns_per_s),
             .terminate_replica => try terminate_random_replica(random, &replicas),
             .mutate_network => {
-                var weights = .{
+                const weights = NetworkFaults.adjusted_weights(.{
                     .network_delay_add = 1,
                     .network_delay_remove = 10,
                     .network_loss_add = 1,
                     .network_loss_remove = 10,
-                };
-                NetworkFaults.adjust_probabilities(&weights);
+                });
                 if (arbitrary.weighted(random, NetworkFaults.Action, weights)) |action| {
                     try NetworkFaults.execute(allocator, random, action);
                 } else {
@@ -249,7 +248,11 @@ fn terminate_random_replica(random: std.Random, replicas: []*Replica) !void {
     } else return error.NoRunningReplica;
 }
 
-fn random_replica_in_state(random: std.Random, replicas: []*Replica, state: Replica.State) ?*Replica {
+fn random_replica_in_state(
+    random: std.Random,
+    replicas: []*Replica,
+    state: Replica.State,
+) ?*Replica {
     var matching: [replica_count]*Replica = undefined;
     var count: u8 = 0;
 
