@@ -52,3 +52,52 @@ pub fn weighted(
 pub fn EnumWeights(comptime E: type) type {
     return std.enums.EnumFieldStruct(E, u32, null);
 }
+
+test "weighted: no weights" {
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const Cases = enum {};
+    try std.testing.expect(weighted(random, Cases, .{}) == null);
+}
+
+test "weighted: one weight" {
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const Cases = enum { a };
+    try std.testing.expect(weighted(random, Cases, .{ .a = 1 }) == .a);
+}
+
+test "weighted: one non-zero weight" {
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const Cases = enum { a, b };
+    try std.testing.expect(weighted(random, Cases, .{ .a = 1, .b = 0 }) == .a);
+}
+
+test "weighted: equal weights are picked equally often over time" {
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const sample_count = 10_000;
+    const Cases = enum { a, b };
+    var count_a: u32 = 0;
+    var count_b: u32 = 0;
+
+    for (0..sample_count) |_| {
+        switch (weighted(random, Cases, .{ .a = 1, .b = 1 }).?) {
+            .a => count_a += 1,
+            .b => count_b += 1,
+        }
+    }
+
+    try std.testing.expectEqual(sample_count, count_a + count_b);
+
+    try std.testing.expectApproxEqAbs(
+        @as(f64, @floatFromInt(count_a)),
+        @as(f64, @floatFromInt(count_b)),
+        @as(f64, @floatFromInt(sample_count)) / 100,
+    );
+}
