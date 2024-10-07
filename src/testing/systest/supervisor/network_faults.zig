@@ -9,15 +9,19 @@ const log = std.log.scoped(.network_faults);
 // Internal state used to track which rules are active.
 // See: https://man7.org/linux/man-pages/man8/tc-netem.8.html
 const NetemRules = struct {
-    delay: ?struct {
+    const Delay = struct {
         time_ms: u32,
         jitter_ms: u32,
         correlation_pct: u8,
-    },
-    loss: ?struct {
+    };
+
+    const Loss = struct {
         loss_pct: u8,
         correlation_pct: u8,
-    },
+    };
+
+    delay: ?Delay,
+    loss: ?Loss,
     // Others not implemented: limit, corrupt, duplication, reordering, rate, slot, seed
 };
 var netem_rules = NetemRules{ .delay = null, .loss = null };
