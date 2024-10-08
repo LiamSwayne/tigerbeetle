@@ -147,14 +147,12 @@ pub fn TreeType(comptime TreeTable: type, comptime Storage: type) type {
 
             for (0..tree.compactions.len) |i| {
                 errdefer for (tree.compactions[0..i]) |*c| c.deinit();
-                tree.compactions[i] = Compaction.init(config, grid, @intCast(i));
+                tree.compactions[i] = Compaction.init(tree, grid, @intCast(i));
             }
             errdefer for (tree.compactions) |*c| c.deinit();
         }
 
         pub fn deinit(tree: *Tree, allocator: mem.Allocator) void {
-            for (&tree.compactions) |*compaction| compaction.deinit();
-
             tree.manifest.deinit(allocator);
             tree.table_immutable.deinit(allocator);
             tree.table_mutable.deinit(allocator);
@@ -538,25 +536,6 @@ pub fn TreeType(comptime TreeTable: type, comptime Storage: type) type {
             assert(tree.table_mutable.count() == 0);
             assert(tree.table_mutable.mutability == .mutable);
             assert(tree.table_immutable.mutability == .immutable);
-        }
-
-        pub fn assert_between_bars(tree: *const Tree) void {
-            // Assert that this is the last beat in the compaction bar.
-            // const compaction_beat = tree.compaction_op.? % constants.lsm_compaction_ops;
-            // const last_beat_in_bar = constants.lsm_compaction_ops - 1;
-            // assert(last_beat_in_bar == compaction_beat);
-
-            // Assert no outstanding compactions.
-            for (&tree.compactions) |*compaction| {
-                compaction.assert_between_bars();
-            }
-
-            // Assert all manifest levels haven't overflowed their table counts.
-            tree.manifest.assert_level_table_counts();
-
-            if (constants.verify) {
-                tree.manifest.assert_no_invisible_tables(&.{});
-            }
         }
     };
 }

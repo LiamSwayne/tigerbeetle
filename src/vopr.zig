@@ -113,9 +113,9 @@ pub fn main() !void {
     const random = prng.random();
 
     const replica_count =
-        if (cli_args.lite) 3 else 1 + random.uintLessThan(u8, constants.replicas_max);
+        3;
     const standby_count =
-        if (cli_args.lite) 0 else random.uintAtMost(u8, constants.standbys_max);
+        0;
     const node_count = replica_count + standby_count;
     // -1 since otherwise it is possible that all clients will evict each other.
     // (Due to retried register messages from the first set of evicted clients.

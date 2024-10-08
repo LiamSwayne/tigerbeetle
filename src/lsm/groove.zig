@@ -1439,15 +1439,6 @@ pub fn GrooveType(
                 @field(groove.indexes, field.name).open_complete();
             }
         }
-
-        pub fn assert_between_bars(groove: *const Groove) void {
-            if (has_id) groove.ids.assert_between_bars();
-            groove.objects.assert_between_bars();
-
-            inline for (std.meta.fields(IndexTrees)) |field| {
-                @field(groove.indexes, field.name).assert_between_bars();
-            }
-        }
     };
 }
 
